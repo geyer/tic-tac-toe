@@ -1,6 +1,8 @@
 from typing import Sequence, Tuple
 import abc
 from copy import deepcopy
+import os.path
+from functools import partial
 
 import numpy as np
 
@@ -60,37 +62,162 @@ class HumanPlayer(Player):
         return row, col
 
 
+def valid_moves(board: Board):
+    moves = [(row, col) for row in range(3) for col in range(3) if board[row, col] == 0]
+    return moves
+
+
+def get_symmetries():
+    """Returns transforms for board and moves."""
+
+    def reflect(axis, x):
+        if len(x) == 2:
+            x[axis] = 2 - x[axis]
+        else:
+            np.flip(x, axis)
+        return x
+
+    def rotate(turns, x):
+        if len(x) == 2:
+            while turns > 0:
+                turns -= 1
+                x = (-x[1], x[0])
+        else:
+            np.rot90(x, turns)
+        return x
+
+    symmetries = [
+        lambda x: x,
+        partial(reflect, 0),
+        partial(reflect, 1),
+        partial(rotate, 1),
+        partial(rotate, 2),
+        partial(rotate, 3),
+    ]
+    return symmetries
+
+
 class BotExhaustiveSearch(Player):
-    def __init__(self, player):
-        self._player = 1 - 2 * player
+    def find_best_move(self, board: Board, player: int):
+        """Returns a best move for the player in the given position.
 
-    def valid_moves(self, board: Board):
-        moves = [
-            (row, col) for row in range(3) for col in range(3) if board[row, col] == 0
-        ]
-        return moves
-
-    def best_move(self, board: Board, player):
+        Calls func(board, move) for the best move found."""
         score = score_board(board)
         if score is not None:
             return None, score
 
-        moves = self.valid_moves(board)
+        moves = valid_moves(board)
         scores = []
         for move in moves:
             mod_board = deepcopy(board)
             mod_board[move] = player
-            _, score = self.best_move(mod_board, -player)
+            _, score = self.find_best_move(mod_board, -player)
             scores.append(score)
+        # Pick the best move for the current player.
         if player == 1:
             score = max(scores)
         else:
             score = min(scores)
-        return moves[scores.index(score)], score
+        move = moves[scores.index(score)]
+        return move, score
 
     def get_move(self, board: Board):
-        move, _ = self.best_move(board, self._player)
+        # Infer player number from board.
+        player = np.count_nonzero(board) % 2
+        player = 1 - 2 * player
+        move, _ = self.find_best_move(board, player)
         return move
+
+
+class BotLookupTable(Player):
+    _LOOKUP_TABLE_PATH = "tic_tac_toe_lookup.txt"
+
+    def __init__(self):
+        self._transforms = get_symmetries()
+        # Load lookup table, or generate and save lookup table.
+        best_moves = self.load_table()
+        if not best_moves:
+            print("Generating lookup table for bot player.")
+            best_moves = self.generate_table()
+            self.store_table(best_moves)
+
+        print(f"Using lookup table with {len(best_moves)} entries.")
+        self._best_moves = best_moves
+
+    def store_table(self, best_moves):
+        with open(self._LOOKUP_TABLE_PATH, "w") as f:
+            for query, move in best_moves.items():
+                f.write(f"{query}: {move}\n")
+
+    def load_table(self):
+        if not os.path.exists(self._LOOKUP_TABLE_PATH):
+            return None
+
+        def tuple_from_string(text):
+            text = text.strip()
+            text = text[1:-1]
+            return tuple(int(i) for i in text.split(","))
+
+        best_moves = {}
+        with open(self._LOOKUP_TABLE_PATH, "r") as f:
+            for line in f.readlines():
+                query, move = line.split(":")
+                query = tuple_from_string(query)
+                move = tuple_from_string(move)
+                best_moves[query] = move
+        return best_moves
+
+    def _key(self, board):
+        """Lookup key for board configurations (hashable)."""
+        return tuple(board.flatten())
+
+    def generate_table(self):
+        best_moves = {}
+        best_scores = {}
+
+        def add_best_move(board, move, score):
+            # Check permutations first.
+            query = self._key(board)
+            best_moves[query] = move
+            best_scores[query] = score
+
+        def dfs(board, player=1):
+            score = score_board(board)
+            if score is not None:
+                return score
+
+            for func in self._transforms:
+                query = self._key(func(board))
+                if query in best_scores:
+                    return best_scores[query]
+
+            moves = valid_moves(board)
+            scores = []
+            for move in moves:
+                mod_board = deepcopy(board)
+                mod_board[move] = player
+                score = dfs(mod_board, -player)
+                scores.append(score)
+            score = max(scores)
+            if player == -1:
+                score = min(scores)
+            move = moves[scores.index(score)]
+            add_best_move(board, move, score)
+            return score
+
+        board = np.zeros((3, 3), dtype=int)
+        dfs(board)
+        return best_moves
+
+    def get_move(self, board: Board):
+        # Retrieve value from lookup table.
+        for func in self._transforms:
+            query = self._key(func(board))
+            if query in self._best_moves:
+                move = self._best_moves[query]
+                return func(move)
+        print("Could not find entry in lookup table.")
+        return None
 
 
 class TicTacToe:
@@ -129,7 +256,7 @@ class TicTacToe:
 
 TicTacToe(
     [
-        BotExhaustiveSearch(0),
-        BotExhaustiveSearch(1),
+        BotLookupTable(),
+        BotLookupTable(),
     ]
 ).run()
