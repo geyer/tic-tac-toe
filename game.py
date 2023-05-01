@@ -78,27 +78,37 @@ def get_symmetries():
 
     def reflect(axis, x):
         if len(x) == 2:
+            x = list(x)
             x[axis] = 2 - x[axis]
+            return tuple(x)
         else:
-            np.flip(x, axis)
-        return x
+            return np.flip(x, axis)
 
     def rotate(turns, x):
         if len(x) == 2:
             while turns > 0:
                 turns -= 1
-                x = (-x[1], x[0])
+                return (2 - x[1], x[0])
         else:
-            np.rot90(x, turns)
-        return x
+            return np.rot90(x, turns)
+
+    def compose(func1, func2):
+        def composition(x):
+            return func2(func1(x))
+
+        return composition
 
     symmetries = [
+        # Rotations.
         lambda x: x,
-        partial(reflect, 0),
-        partial(reflect, 1),
         partial(rotate, 1),
         partial(rotate, 2),
         partial(rotate, 3),
+        # Reflected rotations.
+        partial(reflect, 0),
+        partial(reflect, 1),
+        compose(partial(reflect, 0), partial(rotate, 1)),
+        compose(partial(rotate, 1), partial(reflect, 0)),
     ]
     return symmetries
 
