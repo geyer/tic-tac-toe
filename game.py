@@ -45,7 +45,13 @@ def score_board(board: Board):
 
 
 def print_board(board: Board):
-    print(board)
+    chars = {1: "X", -1: "O", 0: " "}
+    rows = []
+    for row in board:
+        row = [chars[i] for i in row]
+        rows.append(" | ".join(row))
+    separator = "\n" + "-" * 9 + "\n"
+    print(separator.join(rows))
 
 
 class Player:
@@ -256,7 +262,7 @@ class TicTacToe:
 
 TicTacToe(
     [
-        BotLookupTable(),
+        HumanPlayer(),
         BotLookupTable(),
     ]
 ).run()
