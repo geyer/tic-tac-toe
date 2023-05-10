@@ -1,8 +1,8 @@
-from typing import Sequence, Tuple
 import abc
-from copy import deepcopy
 import os.path
+from copy import deepcopy
 from functools import partial
+from typing import Sequence, Tuple
 
 import numpy as np
 
@@ -69,7 +69,8 @@ class HumanPlayer(Player):
 
 
 def valid_moves(board: Board):
-    moves = [(row, col) for row in range(3) for col in range(3) if board[row, col] == 0]
+    moves = [(row, col) for row in range(3)
+             for col in range(3) if board[row, col] == 0]
     return moves
 
 
@@ -86,9 +87,9 @@ def get_symmetries():
 
     def rotate(turns, x):
         if len(x) == 2:
-            while turns > 0:
-                turns -= 1
-                return (2 - x[1], x[0])
+            for _ in range(turns):
+                x = (2-x[1], x[0])
+            return x
         else:
             return np.rot90(x, turns)
 
@@ -193,6 +194,7 @@ class BotLookupTable(Player):
 
         def add_best_move(board, move, score):
             # Check permutations first.
+            assert board[move] == 0
             query = self._key(board)
             best_moves[query] = move
             best_scores[query] = score
@@ -227,11 +229,12 @@ class BotLookupTable(Player):
 
     def get_move(self, board: Board):
         # Retrieve value from lookup table.
+        all_moves = [(x, y) for x in range(3) for y in range(3)]
         for func in self._transforms:
             query = self._key(func(board))
             if query in self._best_moves:
-                move = self._best_moves[query]
-                return func(move)
+                func_move = self._best_moves[query]
+                return [m for m in all_moves if func(m) == func_move][0]
         print("Could not find entry in lookup table.")
         return None
 
