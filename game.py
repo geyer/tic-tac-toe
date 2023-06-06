@@ -1,5 +1,6 @@
 import abc
 import os.path
+from collections import defaultdict
 from copy import deepcopy
 from functools import partial
 from typing import Sequence, Tuple
@@ -59,9 +60,16 @@ class Player:
     def get_move(self, board) -> Move:
         """Returns the next move as (row, col)."""
 
+    def new_game(self):
+        pass
+
+    def give_reward(self, _):
+        pass
+
 
 class HumanPlayer(Player):
     def get_move(self, board: Board) -> Move:
+        print_board(board)
         words = input("What is your next move (as row, col)? ").split()
         words = list(map(int, words))
         row, col = words
@@ -239,6 +247,52 @@ class BotLookupTable(Player):
         return None
 
 
+class RlPlayer(Player):
+    def __init__(self):
+        # Initialize value function
+        self._value_fn = defaultdict(float)
+        self._sequence = []
+        self._actions = [(x, y) for x in range(3) for y in range(3)]
+
+    def new_game(self):
+        self._sequence = []
+
+    def get_move(self, board: Board):
+        player = 1 if np.count_nonzero(board) % 2 == 0 else -1
+        # Evaluate value function after each action candidate.
+        values = []
+        for action in self._actions:
+            if board[action] != 0:
+                values.append(-1000)
+                continue
+            modified = deepcopy(board)
+            modified[action] = player
+            values.append(self._value_fn[tuple(modified.flatten())])
+        max_value = max(values)
+        indices = [i for i, v in enumerate(values) if v > max_value - 0.01]
+        i = np.random.choice(indices)
+        action = self._actions[i]
+        modified = deepcopy(board)
+        modified[action] = player
+        self._sequence.append(deepcopy(board))
+        self._sequence.append(modified)
+        return action
+
+    def give_reward(self, reward: float):
+        self._value_fn[tuple(self._sequence[-1].flatten())] = reward
+        for board in reversed(self._sequence[:-1]):
+            player = 1 if np.count_nonzero(board) % 2 == 0 else -1
+            values = []
+            for action in self._actions:
+                if board[action] != 0:
+                    continue
+                modified = deepcopy(board)
+                modified[action] = player
+                values.append(self._value_fn[tuple(modified.flatten())])
+            value = sum(values) / len(values)
+            self._value_fn[tuple(board.flatten())] = value
+
+
 class TicTacToe:
     def __init__(self, players: Sequence[Player]):
         self._players = tuple(players)
@@ -260,22 +314,52 @@ class TicTacToe:
         score = None
         while score is None:
             print(f"Player {next_player + 1} moves next:")
-            print_board(board)
             move = self._players[next_player].get_move(board)
             self.apply_move(board, next_player, move)
             score = score_board(board)
             next_player = (next_player + 1) % 2
         if score == 0:
             print("Game ends in tie!")
+            self._result_counts[0] += 1
+            pass
         else:
             winner = 2 - next_player
+            self._result_counts[2 * next_player - 1] += 1
             print(f"Player {winner} wins.")
         print_board(board)
 
+    def run_with_reward(self):
+        for player in self._players:
+            player.new_game()
+        board = np.zeros((3, 3), dtype=int)
+        last_player = None
+        next_player = 0
+        score = None
+        while score is None:
+            move = self._players[next_player].get_move(board)
+            try:
+                self.apply_move(board, next_player, move)
+                score = score_board(board)
+                last_player,  next_player = next_player, (next_player + 1) % 2
+            except:
+                print(f"invalid move {move}")
+                print_board(board)
+                self._result_counts['invalid'] += 1
+                self._players[next_player].give_reward(-100)
+                return
+        self._players[last_player].give_reward(abs(score))
+        self._players[next_player].give_reward(-abs(score))
+        if score == 0:
+            self._result_counts[0] += 1
+        else:
+            self._result_counts[last_player] += 1
 
-TicTacToe(
-    [
-        HumanPlayer(),
-        BotLookupTable(),
-    ]
-).run()
+
+if __name__ == '__main__':
+
+    TicTacToe(
+        [
+            HumanPlayer(),
+            BotLookupTable(),
+        ]
+    ).run()
